@@ -1,0 +1,13 @@
+[Unit]
+Description=Schedule automated restic backup client
+
+[Timer]
+# 示例（不是已确认最终值）：*-*-* 02:00:00
+OnCalendar=CHANGE_ME_BACKUP_ON_CALENDAR
+# 示例（不是已确认最终值）：4h；实际会在每天 02:00～06:00 之间启动
+RandomizedDelaySec=CHANGE_ME_BACKUP_RANDOM_DELAY
+Persistent=true
+Unit=restic-backup.service
+
+[Install]
+WantedBy=timers.target

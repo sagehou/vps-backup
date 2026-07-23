@@ -1,0 +1,34 @@
+# Central runtime secrets and generated state
+central/.env
+central/.env.*
+!central/.env.example
+central/hosts.txt
+central/hosts.txt.*
+central/rclone/rclone.conf*
+central/auth/*.htpasswd*
+central/secrets/*
+!central/secrets/.gitkeep
+central/credentials/**
+!central/credentials/public/
+!central/credentials/public/.gitkeep
+!central/credentials/repositories/
+!central/credentials/repositories/.gitkeep
+central/repositories/*.repository-url*
+central/restore/*
+!central/restore/.gitkeep
+
+# Client runtime secrets and host-specific configuration
+client/.env
+client/.env.*
+!client/.env.example
+client/secrets/*
+!client/secrets/.gitkeep
+
+# Local validation artifacts
+*.log
+*.bak
+*.old
+*.orig
+*.tmp
+*~
+tests/.tmp/

@@ -1,0 +1,15 @@
+[Unit]
+Description=Automated restic backup client
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/data/restic-client
+ExecStartPre=/usr/bin/docker compose up -d restic-client
+ExecStart=/usr/bin/flock --nonblock /data/restic-client/backup.lock /usr/bin/docker compose exec -T restic-client /scripts/backup.sh
+TimeoutStartSec=infinity
+
+[Install]
+WantedBy=multi-user.target

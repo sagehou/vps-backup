@@ -1,0 +1,108 @@
+name: restic-gateway
+
+x-rclone-base: &rclone-base
+  image: rclone/rclone:latest
+  user: "${PUID}:${PGID}"
+  restart: unless-stopped
+  environment:
+    TZ: "${TZ}"
+    RCLONE_CONFIG: /config/rclone/rclone.conf
+    RCLONE_PASSWORD_COMMAND: /bin/cat /run/secrets/rclone-config-password
+  secrets:
+    - rclone-config-password
+
+services:
+  rclone-config:
+    <<: *rclone-base
+    profiles: ["tools"]
+    restart: "no"
+    command: ["version"]
+    volumes:
+      - ./rclone:/config/rclone:rw
+    networks:
+      - restic-admin-network
+
+  restic-gateway:
+    <<: *rclone-base
+    container_name: restic-gateway
+    command:
+      - serve
+      - restic
+      - "${RCLONE_REMOTE}"
+      - --addr=:8080
+      - --htpasswd=/auth/public.htpasswd
+      - --private-repos
+      - --append-only
+      - --ask-password=false
+      - --log-level=INFO
+    volumes:
+      - ./rclone:/config/rclone:rw
+      - ./auth/public.htpasswd:/auth/public.htpasswd:ro
+    networks:
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik"
+      - "traefik.http.routers.restic-gateway.rule=Host(`${BACKUP_DOMAIN}`)"
+      - "traefik.http.routers.restic-gateway.entrypoints=${TRAEFIK_ENTRYPOINT}"
+      - "traefik.http.routers.restic-gateway.tls=true"
+      - "traefik.http.services.restic-gateway.loadbalancer.server.port=8080"
+
+  restic-admin-gateway:
+    <<: *rclone-base
+    container_name: restic-admin-gateway
+    command:
+      - serve
+      - restic
+      - "${RCLONE_REMOTE}"
+      - --addr=:8080
+      - --htpasswd=/auth/admin.htpasswd
+      - --ask-password=false
+      - --log-level=INFO
+    volumes:
+      - ./rclone:/config/rclone:rw
+      - ./auth/admin.htpasswd:/auth/admin.htpasswd:ro
+    networks:
+      - restic-admin-network
+
+  restic-admin:
+    image: restic/restic:latest
+    container_name: restic-admin
+    user: "${PUID}:${PGID}"
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["exec tail -f /dev/null"]
+    environment:
+      TZ: "${TZ}"
+      RESTIC_ADMIN_USERNAME: "${RESTIC_ADMIN_USERNAME}"
+      KEEP_LAST: "${KEEP_LAST}"
+      KEEP_DAILY: "${KEEP_DAILY}"
+      KEEP_WEEKLY: "${KEEP_WEEKLY}"
+      KEEP_MONTHLY: "${KEEP_MONTHLY}"
+      KEEP_YEARLY: "${KEEP_YEARLY}"
+      KEEP_WITHIN: "${KEEP_WITHIN}"
+      CHECK_READ_DATA_SUBSET: "${CHECK_READ_DATA_SUBSET}"
+    volumes:
+      - ./hosts.txt:/config/hosts.txt:ro
+      - ./repositories:/config/repositories:ro
+      - ./credentials/repositories:/run/repository-passwords:ro
+      - ./scripts:/scripts:ro
+      - ./restore:/restore:rw
+    secrets:
+      - source: admin-http-password
+        target: admin.http-password
+    networks:
+      - restic-admin-network
+
+networks:
+  traefik:
+    external: true
+    name: traefik
+  restic-admin-network:
+    driver: bridge
+
+secrets:
+  rclone-config-password:
+    file: ./secrets/rclone-config-password
+  admin-http-password:
+    file: ./credentials/admin.http-password

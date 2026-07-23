@@ -1,0 +1,13 @@
+[Unit]
+Description=Schedule restic repositories integrity check
+
+[Timer]
+# 示例（不是已确认最终值）：Sat *-*-* 04:00:00
+OnCalendar=CHANGE_ME_CHECK_ON_CALENDAR
+# 示例（不是已确认最终值）：2h
+RandomizedDelaySec=CHANGE_ME_CHECK_RANDOM_DELAY
+Persistent=true
+Unit=restic-check.service
+
+[Install]
+WantedBy=timers.target

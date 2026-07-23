@@ -1,0 +1,13 @@
+[Unit]
+Description=Schedule restic repositories forget and prune
+
+[Timer]
+# 示例（不是已确认最终值）：Sun *-*-* 04:00:00
+OnCalendar=CHANGE_ME_MAINTENANCE_ON_CALENDAR
+# 示例（不是已确认最终值）：2h；实际会在计划时间后的 0～2 小时内启动
+RandomizedDelaySec=CHANGE_ME_MAINTENANCE_RANDOM_DELAY
+Persistent=true
+Unit=restic-maintenance.service
+
+[Install]
+WantedBy=timers.target

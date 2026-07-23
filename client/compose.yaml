@@ -1,0 +1,34 @@
+name: restic-client
+
+services:
+  restic-client:
+    image: restic/restic:latest
+    container_name: restic-client
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["exec tail -f /dev/null"]
+    working_dir: /backup
+    environment:
+      TZ: "${TZ}"
+      RESTIC_HOST: "${RESTIC_HOST}"
+      RESTIC_REPOSITORY: "${RESTIC_REPOSITORY}"
+      RESTIC_CACHE_DIR: /cache
+    volumes:
+      - ./config:/config:ro
+      - ./scripts:/scripts:ro
+      - restic-cache:/cache
+      - /data:/backup/data:ro
+      - /etc:/backup/etc:ro
+      - /root:/backup/root:ro
+    secrets:
+      - restic-rest-password
+      - repository-password
+
+volumes:
+  restic-cache:
+
+secrets:
+  restic-rest-password:
+    file: ./secrets/restic-rest-password
+  repository-password:
+    file: ./secrets/repository-password

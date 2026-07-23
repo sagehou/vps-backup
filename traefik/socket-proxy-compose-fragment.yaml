@@ -1,0 +1,38 @@
+# 此文件是合并到现有 Traefik Compose 的片段，不是替换现有 Traefik 项目。
+# Traefik 和现有 traefik-logrotate 都加入 socket-proxy-network。
+# 自定义 HAProxy ACL 只允许 Traefik Docker provider 必需的读取端点，
+# 以及对固定 Traefik 容器发送 USR1；不要删除 ACL 模板挂载。
+
+services:
+  socket-proxy:
+    image: lscr.io/linuxserver/socket-proxy:latest
+    container_name: socket-proxy
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /run
+    environment:
+      TZ: Asia/Shanghai
+      LOG_LEVEL: info
+      TRAEFIK_CONTAINER_NAME: ${TRAEFIK_CONTAINER_NAME:?set the exact Traefik container name}
+    volumes:
+      - ./socket-proxy-haproxy.cfg:/templates/haproxy.cfg:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - socket-proxy-network
+
+  # 在现有 traefik 服务中完成以下变更：
+  # 1. 删除 /var/run/docker.sock 的直接挂载。
+  # 2. 将 Docker provider endpoint 改为 tcp://socket-proxy:2375。
+  # 3. 加入 socket-proxy-network，同时保留原有 traefik network。
+
+  # 在现有 traefik-logrotate 服务中完成以下变更：
+  # 1. 删除 /var/run/docker.sock 的直接挂载。
+  # 2. 增加 DOCKER_HOST=tcp://socket-proxy:2375。
+  # 3. 加入 socket-proxy-network。
+  # 4. 保留轮转后执行 docker kill --signal USR1 ${TRAEFIK_CONTAINER_NAME} 的现有逻辑。
+
+networks:
+  socket-proxy-network:
+    driver: bridge
+    internal: true

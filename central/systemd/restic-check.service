@@ -1,0 +1,15 @@
+[Unit]
+Description=Restic repositories integrity check
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/data/restic-gateway
+ExecStartPre=/usr/bin/docker compose up -d restic-admin-gateway restic-admin
+ExecStart=/usr/bin/flock --nonblock /data/restic-gateway/locks/admin.lock /usr/bin/docker compose exec -T restic-admin /scripts/check-all.sh
+TimeoutStartSec=infinity
+
+[Install]
+WantedBy=multi-user.target
