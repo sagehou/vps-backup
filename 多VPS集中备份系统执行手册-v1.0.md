@@ -939,8 +939,6 @@ RESTIC_HOST=vps-example-01
 sudo -i
 git clone --depth 1 --branch main \
   https://github.com/sagehou/vps-backup.git /tmp/vps-backup
-timedatectl set-timezone Asia/Shanghai
-timedatectl show -p NTPSynchronized
 install -d -o root -g root -m 0750 /data/restic-client
 cp -a /tmp/vps-backup/client/. /data/restic-client/
 cd /data/restic-client
