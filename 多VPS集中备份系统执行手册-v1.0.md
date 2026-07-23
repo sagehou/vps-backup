@@ -166,8 +166,7 @@ client/
     └── restic-backup.timer.template
 
 traefik/
-├── socket-proxy-compose-fragment.yaml
-└── socket-proxy-haproxy.cfg
+└── socket-proxy-compose-fragment.yaml
 ```
 
 生产中央节点落盘后完整结构为：
@@ -508,7 +507,7 @@ docker compose --profile tools run --rm -it rclone-config config encryption set
 
 Traefik 保持在原 Compose 项目中。本步骤不把 Traefik 移入 `/data/restic-gateway/compose.yaml`。
 
-将交付包中的 `traefik/socket-proxy-compose-fragment.yaml` 合并到现有 Traefik Compose，并把 `traefik/socket-proxy-haproxy.cfg` 复制到该 Compose 项目目录。不能直接用片段覆盖现有文件。
+将交付包中的 `traefik/socket-proxy-compose-fragment.yaml` 合并到现有 Traefik Compose。不能直接用片段覆盖现有文件。
 
 socket proxy 使用：
 
@@ -516,32 +515,25 @@ socket proxy 使用：
 lscr.io/linuxserver/socket-proxy:latest
 ```
 
-LinuxServer 镜像原生的 `CONTAINERS=1` 会开放整个 `/containers` GET 命名空间，其中包括 archive、export、logs 等 Traefik 不需要的读取接口；`ALLOW_RESTARTS=1` 还会在 `POST=0` 时继续允许任意容器的 stop、restart 和 kill。因此本方案不使用这两个分组开关，而是只读挂载自定义 HAProxy ACL 模板。
+本方案使用 LinuxServer 镜像原生权限开关，不覆盖镜像内部 nginx 配置：
 
-ACL 仅允许：
-
-- Docker provider 所需的 ping、version、info、events、容器列表/inspect、网络列表/inspect。
-- 对一个固定 Traefik 容器执行 `POST /containers/<name>/kill?signal=USR1`。
-
-archive、export、logs、stats、stop、restart、exec 及其他 Docker API 请求均返回拒绝。
-
-先在现有 Traefik Compose 项目的 `.env` 中填写固定容器名。例如实际容器名确为 `traefik` 时：
-
-```dotenv
-TRAEFIK_CONTAINER_NAME=traefik
+```yaml
+environment:
+  TZ: Asia/Shanghai
+  LOG_LEVEL: info
+  CONTAINERS: "1"
+  EVENTS: "1"
+  INFO: "1"
+  NETWORKS: "1"
+  PING: "1"
+  VERSION: "1"
+  POST: "0"
+  ALLOW_RESTARTS: "1"
 ```
 
-该名称只能包含 ASCII 字母、数字、下划线和连字符。若当前名称含其他字符，为 Traefik 服务设置一个满足规则的稳定 `container_name`，再填写完全一致的值。部署前验证：
+`POST=0` 全局拒绝常规 POST 操作；LinuxServer 明确规定 `ALLOW_RESTARTS=1` 是例外，即使在 `POST=0` 时也允许任意容器的 stop、restart 和 kill，以便现有日志轮转发送 `USR1`。`CONTAINERS=1` 会开放整个 `/containers` 读取命名空间，其中包括 inspect、logs、archive、export 等接口。
 
-```bash
-set -a
-. ./.env
-set +a
-case "$TRAEFIK_CONTAINER_NAME" in
-  ''|*[!A-Za-z0-9_-]*) echo '错误：TRAEFIK_CONTAINER_NAME 格式无效' >&2; exit 1 ;;
-esac
-docker inspect "$TRAEFIK_CONTAINER_NAME" >/dev/null
-```
+这里明确接受上述容器读取和可用性风险，以换取更短的配置、无需维护自定义代理模板，并避免 `latest` 镜像内部实现变化造成模板失配。socket-proxy 仍不得发布宿主机端口，只有 Traefik 和 `traefik-logrotate` 加入 `socket-proxy-network`；相比直接挂载 Docker socket，AUTH、BUILD、COMMIT、CONFIGS、EXEC、IMAGES、NODES、PLUGINS、SECRETS、SERVICES、TASKS、VOLUMES 等未启用 API 分组仍会被拒绝。
 
 ### 7.2 修改现有 Traefik 服务
 
@@ -580,16 +572,17 @@ Traefik 必须同时保留原有 `traefik` network，并新增 `socket-proxy-net
 ```yaml
 environment:
   DOCKER_HOST: tcp://socket-proxy:2375
-  TRAEFIK_CONTAINER_NAME: ${TRAEFIK_CONTAINER_NAME:?set the exact Traefik container name}
 networks:
   - socket-proxy-network
 ```
 
-删除其直接 Docker socket 挂载。轮转后仍需执行等价于：
+删除其直接 Docker socket 挂载。不要新增容器名环境变量；保留原有轮转命令及其实际目标容器名。例如现有 Traefik 容器固定名为 `traefik` 时：
 
 ```bash
-docker kill --signal USR1 "$TRAEFIK_CONTAINER_NAME"
+docker kill --signal USR1 traefik
 ```
+
+如果实际容器名不是 `traefik`，继续使用原有的实际名称，不要照抄此示例名称。
 
 ### 7.4 验证 socket proxy
 
@@ -598,39 +591,34 @@ docker kill --signal USR1 "$TRAEFIK_CONTAINER_NAME"
 ```bash
 docker compose config
 docker compose pull socket-proxy
-docker compose run --rm --no-deps --entrypoint /bin/sh socket-proxy -c \
-  'sed "s/@@BIND_PROTO@@/:2375/g" /templates/haproxy.cfg >/run/haproxy-test.cfg && haproxy -c -f /run/haproxy-test.cfg'
 docker compose up -d socket-proxy traefik traefik-logrotate
 docker compose ps
 docker compose logs --tail=100 socket-proxy traefik
 ```
 
-HAProxy 检查必须显示配置有效。随后从已有 Docker CLI 的 `traefik-logrotate` 容器验证拒绝规则；以下命令只尝试读取 Traefik 容器内非敏感的 `/etc/hostname`：
+随后从已有 Docker CLI 的 `traefik-logrotate` 容器验证允许和拒绝的 API 分组：
 
 ```bash
-if docker compose exec -T traefik-logrotate sh -c \
-  'rm -f /tmp/socket-proxy-deny-test && docker cp "${TRAEFIK_CONTAINER_NAME}:/etc/hostname" /tmp/socket-proxy-deny-test'; then
-  echo '错误：socket proxy 未拒绝 archive/cp 请求' >&2
-  exit 1
-fi
+docker compose exec -T traefik-logrotate docker version
+docker compose exec -T traefik-logrotate docker ps
 
-if docker compose exec -T traefik-logrotate sh -c \
-  'docker kill --signal CONT "$TRAEFIK_CONTAINER_NAME"'; then
-  echo '错误：socket proxy 未拒绝非 USR1 信号' >&2
+if docker compose exec -T traefik-logrotate docker image ls; then
+  echo '错误：socket proxy 意外开放了 IMAGES API 分组' >&2
   exit 1
 fi
 ```
 
-两项都必须被拒绝。不要用 stop/restart 作为拒绝测试，避免 ACL 配置错误时真的中断 Traefik。
+`docker version` 和 `docker ps` 必须成功，`docker image ls` 必须被拒绝。不要用 stop/restart 作为权限测试，避免真的中断业务容器。
 
 检查 Traefik 已重新发现现有容器路由。手动触发一次现有日志轮转流程，然后确认：
 
 1. Traefik 容器没有重启或退出。
 2. Traefik 日志文件被重新打开并继续写入。
 3. Traefik 和 logrotate 已不再直接挂载 `/var/run/docker.sock`。
-4. `docker cp` 和非 `USR1` 信号测试都被 socket proxy 拒绝。
+4. socket-proxy 没有 `ports`，不能从宿主机或公网直接访问其 Docker API 端口。
+5. 未启用的 `IMAGES` API 分组仍被拒绝。
 
-若 Traefik 无法发现容器，检查 provider endpoint、network、socket proxy 日志及 ACL；不要为了通过测试而重新启用 `CONTAINERS=1` 或 `ALLOW_RESTARTS=1`。在路由失效或拒绝测试失败时，不要继续部署公共网关。
+若 Traefik 无法发现容器，检查 provider endpoint、network、socket-proxy 日志和原生权限变量。在路由失效或未启用 API 分组仍可访问时，不要继续部署公共网关。
 
 ## 8. 启动中央备份系统
 
@@ -1692,7 +1680,7 @@ docker compose exec -T restic-admin /scripts/init-repository.sh '<new-host>'
 - [ ] 所有保留策略包含已确认的 `KEEP_WITHIN`。
 - [ ] AMD64 和 ARM64 各至少一台完成真实备份。
 - [ ] 至少一台完成备份、快照查询、恢复和哈希比对。
-- [ ] Docker socket 已通过受限 `linuxserver/socket-proxy` 提供。
+- [ ] Docker socket 已通过未发布端口的 `linuxserver/socket-proxy` 提供，并已接受 `CONTAINERS=1` 与 `ALLOW_RESTARTS=1` 的风险边界。
 - [ ] `traefik-logrotate` 仍能通过 USR1 让 Traefik 重新打开日志。
 - [ ] 其他存储服务 未进入本期数据路径。
 - [ ] 中央控制面密钥已有异地安全副本。
