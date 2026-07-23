@@ -123,9 +123,15 @@ flowchart LR
 
 `restic-admin-network` 不能设置 `internal: true`，否则 rclone 无法访问 OneDrive。
 
-## 5. 交付包内容
+## 5. GitHub 模板仓库与目录结构
 
-当前交付包包含：
+模板仓库地址：
+
+```text
+https://github.com/sagehou/vps-backup.git
+```
+
+仓库包含：
 
 ```text
 central/
@@ -169,6 +175,53 @@ traefik/
 └── socket-proxy-compose-fragment.yaml
 ```
 
+### 5.1 从 GitHub 获取最新模板
+
+中央 VPS 和每台业务 VPS 都通过 Git 获取模板，不再手动上传交付包。以 root 执行；若系统尚未安装 Git，以下命令会根据现有包管理器安装：
+
+```bash
+sudo -i
+
+if ! command -v git >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update
+    apt-get install -y git
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y git
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y git
+  else
+    echo '错误：未找到 Git，也未识别出 apt-get、dnf 或 yum' >&2
+    exit 1
+  fi
+fi
+
+TEMPLATE_DIR=/root/vps-backup-template
+
+if [ -d "$TEMPLATE_DIR/.git" ]; then
+  if [ -n "$(git -C "$TEMPLATE_DIR" status --porcelain)" ]; then
+    echo "错误：$TEMPLATE_DIR 存在本地修改，拒绝自动更新" >&2
+    exit 1
+  fi
+  git -C "$TEMPLATE_DIR" pull --ff-only origin main
+elif [ -e "$TEMPLATE_DIR" ]; then
+  echo "错误：$TEMPLATE_DIR 已存在但不是 Git 仓库" >&2
+  exit 1
+else
+  git clone --depth 1 --branch main --single-branch \
+    https://github.com/sagehou/vps-backup.git "$TEMPLATE_DIR"
+fi
+
+git -C "$TEMPLATE_DIR" status --short
+git -C "$TEMPLATE_DIR" log -1 --oneline
+```
+
+首次克隆使用 `--depth 1`，只获取 `main` 当前最新提交。`status --short` 必须没有输出。记录 `log -1 --oneline` 显示的 commit；该 commit 就是本次部署实际使用的模板版本。后续执行中央、Traefik 或客户端部署前，重新运行本节即可快进到 GitHub `main` 的最新提交。本流程不会使用 `reset --hard` 覆盖本地修改。
+
+更新 `/root/vps-backup-template` 不会自动更新已经运行的生产目录。6.2 和 11.2 节的 `cp -a`、`.env` 创建命令只用于首次安装；已有部署升级时必须先比较新旧模板，不能直接重跑首次安装命令覆盖生产 `.env`、凭据或本地配置。
+
+### 5.2 生产目录结构
+
 生产中央节点落盘后完整结构为：
 
 ```text
@@ -202,6 +255,7 @@ traefik/
 
 ```bash
 sudo -i
+git --version
 docker version
 docker compose version
 systemctl --version
@@ -230,12 +284,17 @@ timedatectl show -p NTPSynchronized
 
 ### 6.2 安装中央目录
 
-先将交付包的 `central` 目录上传到中央 VPS，例如上传到 `/root/vps-backup-package/central`，然后执行：
+先按 5.1 节将 GitHub 最新模板拉取到 `/root/vps-backup-template`，然后执行：
 
 ```bash
 sudo -i
+TEMPLATE_DIR=/root/vps-backup-template
+test -f "$TEMPLATE_DIR/central/compose.yaml" || {
+  echo '错误：中央模板不存在，请先完成 5.1 节' >&2
+  exit 1
+}
 install -d -o 10001 -g 10001 -m 0750 /data/restic-gateway
-cp -a /root/vps-backup-package/central/. /data/restic-gateway/
+cp -a "$TEMPLATE_DIR/central/." /data/restic-gateway/
 cd /data/restic-gateway
 mv .env.example .env
 cp hosts.example.txt hosts.txt
@@ -507,7 +566,7 @@ docker compose --profile tools run --rm -it rclone-config config encryption set
 
 Traefik 保持在原 Compose 项目中。本步骤不把 Traefik 移入 `/data/restic-gateway/compose.yaml`。
 
-将交付包中的 `traefik/socket-proxy-compose-fragment.yaml` 合并到现有 Traefik Compose。不能直接用片段覆盖现有文件。
+先按 5.1 节更新 Git 模板仓库，再将 `/root/vps-backup-template/traefik/socket-proxy-compose-fragment.yaml` 合并到现有 Traefik Compose。不能直接用片段覆盖现有文件。
 
 socket proxy 使用：
 
@@ -913,14 +972,19 @@ RESTIC_HOST=vps-example-01
 
 ### 11.2 创建客户端目录
 
-将交付包的 `client` 目录上传到业务 VPS，例如 `/root/vps-backup-package/client`，然后执行：
+先在本机按 5.1 节从 GitHub 获取最新模板，然后执行：
 
 ```bash
 sudo -i
+TEMPLATE_DIR=/root/vps-backup-template
+test -f "$TEMPLATE_DIR/client/compose.yaml" || {
+  echo '错误：客户端模板不存在，请先完成 5.1 节' >&2
+  exit 1
+}
 timedatectl set-timezone Asia/Shanghai
 timedatectl show -p NTPSynchronized
 install -d -o root -g root -m 0750 /data/restic-client
-cp -a /root/vps-backup-package/client/. /data/restic-client/
+cp -a "$TEMPLATE_DIR/client/." /data/restic-client/
 cd /data/restic-client
 mv .env.example .env
 install -d -o root -g root -m 0750 config scripts secrets systemd
