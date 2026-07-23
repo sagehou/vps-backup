@@ -972,13 +972,50 @@ RESTIC_HOST=vps-example-01
 
 ### 11.2 创建客户端目录
 
-先在本机按 5.1 节从 GitHub 获取最新模板，然后执行：
+以下代码块已经包含 Git 安装、模板获取和客户端目录创建，可在每台业务 VPS 上独立执行，无需跳转到 5.1 节：
 
 ```bash
 sudo -i
+
+if ! command -v git >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update
+    apt-get install -y git
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y git
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y git
+  else
+    echo '错误：未找到 Git，也未识别出 apt-get、dnf 或 yum' >&2
+    exit 1
+  fi
+fi
+
 TEMPLATE_DIR=/root/vps-backup-template
+
+if [ -d "$TEMPLATE_DIR/.git" ]; then
+  if [ -n "$(git -C "$TEMPLATE_DIR" status --porcelain)" ]; then
+    echo "错误：$TEMPLATE_DIR 存在本地修改，拒绝自动更新" >&2
+    exit 1
+  fi
+  git -C "$TEMPLATE_DIR" pull --ff-only origin main
+elif [ -e "$TEMPLATE_DIR" ]; then
+  echo "错误：$TEMPLATE_DIR 已存在但不是 Git 仓库" >&2
+  exit 1
+else
+  git clone --depth 1 --branch main --single-branch \
+    https://github.com/sagehou/vps-backup.git "$TEMPLATE_DIR"
+fi
+
+git -C "$TEMPLATE_DIR" status --short
+git -C "$TEMPLATE_DIR" log -1 --oneline
+
 test -f "$TEMPLATE_DIR/client/compose.yaml" || {
-  echo '错误：客户端模板不存在，请先完成 5.1 节' >&2
+  echo '错误：Git 仓库中不存在客户端模板' >&2
+  exit 1
+}
+test ! -e /data/restic-client/.env || {
+  echo '错误：/data/restic-client 已存在生产 .env；本节仅用于首次安装，拒绝覆盖' >&2
   exit 1
 }
 timedatectl set-timezone Asia/Shanghai
