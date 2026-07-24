@@ -37,6 +37,7 @@
 | 数据库一致性 dump | 各 VPS 的应用维护脚本 | 已确定各数据库的 dump 命令和失败策略 |
 | 客户端备份时间 | `restic-backup.timer` | `systemd-analyze calendar` 验证通过 |
 | 客户端随机延迟 | `restic-backup.timer` | 已确认允许的延迟窗口 |
+| Healthchecks.io ping URL | 客户端 `.env` | 每台 VPS 使用独立 check，宽限时间覆盖随机延迟和最长备份耗时 |
 | 保留数量与窗口 | 中央 `.env` | 所有 `KEEP_*` 已填，`KEEP_WITHIN` 非空 |
 | forget/prune 周期 | `restic-maintenance.timer` | 不与已知高峰维护窗口冲突 |
 | check 周期与比例 | 中央 `.env`、`restic-check.timer` | 比例格式通过 restic 验证 |
@@ -67,6 +68,7 @@
 | `CHANGE_ME_BACKUP_RANDOM_DELAY` | `4h` | 各 VPS 分散在 02:00～06:00 启动 |
 | `CHANGE_ME_HOSTNAME` | `vps-example-01` | 必须与中央用户名及路径完全一致 |
 | `CHANGE_ME_PUBLIC_REPOSITORY_URL` | `rest:https://backup.example.com/vps-example-01/` | 本机公共仓库 URL |
+| `CHANGE_ME_HEALTHCHECKS_PING_URL` | `https://hc-ping.com/<本机独立UUID>` | 仅在本机完整备份成功后请求 |
 
 本项目统一使用 `Asia/Shanghai`，所以上述未带时区后缀的 `OnCalendar` 示例按上海时间解释。`RandomizedDelaySec` 是最大随机延迟，不是固定延迟。
 
@@ -985,9 +987,12 @@ nano /data/restic-client/.env
 TZ=Asia/Shanghai
 RESTIC_HOST=vps-example-01
 RESTIC_REPOSITORY=rest:https://<公共备份域名>/vps-example-01/
+HEALTHCHECKS_URL=https://hc-ping.com/<本机独立UUID>
 ```
 
 仓库 URL 必须是 HTTPS 公共域名，不能使用管理网关服务名。
+
+每台 VPS 必须在 Healthchecks.io 创建独立 check，不能共用同一个 ping URL。该 URL 只能伪造本机监控状态，不能访问备份仓库，但仍不得提交到 Git。
 
 ### 11.5 配置备份源
 
@@ -1156,6 +1161,7 @@ RandomizedDelaySec=4h
 验证并安装：
 
 ```bash
+command -v curl
 systemd-analyze calendar '<已确认的 OnCalendar 值>'
 cp systemd/restic-backup.service /etc/systemd/system/restic-backup.service
 chmod 0644 /etc/systemd/system/restic-backup.service /etc/systemd/system/restic-backup.timer
@@ -1169,9 +1175,14 @@ systemctl list-timers restic-backup.timer
 ```bash
 systemctl start restic-backup.service
 journalctl -u restic-backup.service -n 300 --no-pager
+systemctl show restic-backup.service -p Result -p ExecMainCode -p ExecMainStatus
 ```
 
-`flock` 防止同一台 VPS 的两个备份周期重叠。
+成功时应显示 `Result=success` 和 `ExecMainStatus=0`，对应 Healthchecks.io 页面应更新最后成功时间。`Type=oneshot` 执行完成后显示 `inactive (dead)` 是正常现象。
+
+systemd 只在 `backup.sh` 完整成功后执行 Healthchecks 请求；该脚本已经包含备份和最新快照查询。备份失败时不会发送成功 ping，由 Healthchecks.io 在超过预期周期和宽限时间后告警。`ExecStartPost` 命令前的 `-` 表示 Healthchecks.io 暂时不可达时不反向把已完成的备份标记为失败；请求错误仍可从 journal 查看。
+
+Healthchecks.io 的宽限时间必须覆盖 `RandomizedDelaySec`、最长备份耗时和必要余量。`--skip-if-unchanged` 判断没有数据变化且任务正常结束时仍发送成功 ping。`flock` 防止同一台 VPS 的两个备份周期重叠。
 
 ## 12. 安全验收测试
 
@@ -1635,6 +1646,7 @@ docker compose exec -T restic-admin /scripts/init-repository.sh '<new-host>'
 | 自动维护日志 | `journalctl -u restic-maintenance.service --since today` |
 | 自动检查日志 | `journalctl -u restic-check.service --since today` |
 | 客户端备份日志 | `journalctl -u restic-backup.service --since today` |
+| 客户端最近结果 | `systemctl show restic-backup.service -p Result -p ExecMainStatus` |
 | timer 状态 | `systemctl list-timers 'restic-*'` |
 | 仓库快照 | `/scripts/run-restic.sh <host> snapshots` |
 | OneDrive 目录 | `docker compose --profile tools run --rm rclone-config lsd backup-onedrive-crypt:restic` |
@@ -1695,6 +1707,7 @@ docker compose exec -T restic-admin /scripts/init-repository.sh '<new-host>'
 - [ ] 客户端使用 `restic/restic:latest`，启用 `--skip-if-unchanged`。
 - [ ] cache 子串匹配不区分大小写并通过真实快照测试。
 - [ ] 客户端和中央管理容器长期运行，timer 自动触发。
+- [ ] 每台客户端使用独立 Healthchecks.io check，systemd 成功执行后页面更新时间正常。
 - [ ] maintenance/check 互斥锁有效。
 - [ ] 单仓库失败不会阻止后续仓库，最终返回非零。
 - [ ] 所有保留策略包含已确认的 `KEEP_WITHIN`。

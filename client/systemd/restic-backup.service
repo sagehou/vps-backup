@@ -7,8 +7,10 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=/data/restic-client
+EnvironmentFile=/data/restic-client/.env
 ExecStartPre=/usr/bin/docker compose up -d restic-client
 ExecStart=/usr/bin/flock --nonblock /data/restic-client/backup.lock /usr/bin/docker compose exec -T restic-client /scripts/backup.sh
+ExecStartPost=-/usr/bin/env curl -fsS --retry 3 --max-time 10 ${HEALTHCHECKS_URL}
 TimeoutStartSec=infinity
 
 [Install]

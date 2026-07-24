@@ -11,6 +11,7 @@
 - 客户端使用 Docker 运行 `restic:latest`，支持 AMD64 与 ARM64。
 - 默认备份 `/data`、`/etc`、`/root`，并以不区分大小写的规则排除名称中含 `cache` 的项目。
 - systemd timer 自动调度客户端备份和中央维护。
+- 每台客户端在完整备份成功后向独立的 Healthchecks.io check 发送一次成功 ping。
 - Traefik 和日志轮转通过不对外发布端口的 `linuxserver/socket-proxy` 访问 Docker API，不再直接挂载 Docker socket。
 
 ## 开始使用
