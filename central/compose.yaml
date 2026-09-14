@@ -75,6 +75,7 @@ services:
     environment:
       TZ: "${TZ}"
       RESTIC_ADMIN_USERNAME: "${RESTIC_ADMIN_USERNAME}"
+      RESTIC_CACHE_DIR: "/cache"
       KEEP_LAST: "${KEEP_LAST}"
       KEEP_DAILY: "${KEEP_DAILY}"
       KEEP_WEEKLY: "${KEEP_WEEKLY}"
@@ -88,6 +89,7 @@ services:
       - ./credentials/repositories:/run/repository-passwords:ro
       - ./scripts:/scripts:ro
       - ./restore:/restore:rw
+      - ./cache/restic:/cache:rw
     secrets:
       - source: admin-http-password
         target: admin.http-password

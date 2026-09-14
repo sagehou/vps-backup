@@ -16,6 +16,8 @@ central/credentials/**
 central/repositories/*.repository-url*
 central/restore/*
 !central/restore/.gitkeep
+central/cache/
+central/locks/
 
 # Client runtime secrets and host-specific configuration
 client/.env
