@@ -1,6 +1,7 @@
-# 使用 --iexclude-file 读取，因此匹配不区分大小写。
-# 排除任意层级中名称包含 cache 的文件或目录；目录匹配后不再遍历其内容。
+# 使用 --iexclude-file，因此匹配不区分大小写。
+# 排除任意层级中名称包含 cache 的文件或目录。
 **/*cache*
 
-# /data 包含客户端项目本身，禁止将公共 REST 密码和仓库密码写入备份。
+# 不把客户端凭据或本机恢复暂存数据再次写入备份。
 **/restic-client/secrets
+**/restic-client/restore
