@@ -16,6 +16,7 @@ services:
     volumes:
       - ./config:/config:ro
       - ./scripts:/scripts:ro
+      - ./restore:/restore:rw
       - restic-cache:/cache
       - /data:/backup/data:ro
       - /etc:/backup/etc:ro
