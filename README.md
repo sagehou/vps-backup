@@ -21,6 +21,7 @@
 完整目录、中央部署、客户端部署、凭据生成、仓库初始化、自动维护、恢复测试和故障排查请阅读：
 
 - [多 VPS 集中备份系统执行手册 v1.0](./多VPS集中备份系统执行手册-v1.0.md)
+- [客户端目录/文件恢复指南](./client/RESTORE.md)
 - [rclone 存储后端与迁移约定](./docs/rclone-backends.md)
 
 > 执行手册 v1.0 最初以 OneDrive 为唯一后端编写，其中的 `backup-onedrive-crypt` 等名称属于历史示例。当前模板的正式约定以 `docs/rclone-backends.md` 为准：crypt remote 固定为 `backup-crypt`，底层 provider remote 保留可识别的提供商名称。
